@@ -76,7 +76,10 @@
    (fn [handler]
      (fn [request]
        (try
-         (let [task (.submit executor ^Callable (bound-fn [] (handler request)))]
+         ;; Hint the local: bound-fn's macro expansion drops a hint on the form.
+         ;; Resolving submit as Callable preserves the handler's return value.
+         (let [^Callable work (bound-fn [] (handler request))
+               task (.submit executor work)]
            (try
              (.get task (long timeout-ms) TimeUnit/MILLISECONDS)
              (catch TimeoutException _

@@ -5,6 +5,7 @@ Temporarily stops those dependencies and always restarts them. Creates and then
 removes only this run's authors and books. Run from the repository directory.
 """
 import datetime
+import functools
 import json
 import subprocess
 import time
@@ -14,7 +15,16 @@ import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "http://127.0.0.1:3000"
+
+
+@functools.lru_cache(maxsize=1)
+def api_base():
+    # Ask Compose for the actual mapping, including shell and .env overrides.
+    address = subprocess.check_output(
+        ["docker", "compose", "port", "api", "3000"], cwd=ROOT, text=True).strip()
+    if not address:
+        raise RuntimeError("Start the Compose API before running the smoke test")
+    return "http://" + address
 
 
 def compose(*args):
@@ -24,7 +34,7 @@ def compose(*args):
 
 def request(path, method="GET", body=None, headers=None):
     req = urllib.request.Request(
-        BASE + path, method=method,
+        api_base() + path, method=method,
         data=None if body is None else json.dumps(body).encode(),
         headers={"Content-Type": "application/json", **(headers or {})})
     try:

@@ -1,4 +1,5 @@
-FROM eclipse-temurin:21-jdk-jammy AS build
+ARG BUILD_JDK_IMAGE=eclipse-temurin:21-jdk-jammy
+FROM ${BUILD_JDK_IMAGE} AS build
 ARG LEIN_VERSION=2.13.0
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*

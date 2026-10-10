@@ -241,9 +241,34 @@ APP_ROLE=worker REDIS_ENABLED=true lein run
 APP_ROLE=migrate lein run
 ```
 
-If ports 3000, 5432, or 6379 are already in use, change the host side of the Compose
-port mappings and the corresponding host development environment values. Compose
-services still use the internal service names and ports.
+If the default host ports are already in use, override them in your shell or a
+local `.env` file (ignored by Git). The loopback bind and container ports stay
+unchanged; services still connect to `postgres:5432`, `redis:6379`, and API port
+3000 internally.
+
+| Compose variable | Default host port |
+| --- | --- |
+| `POSTGRES_HOST_PORT` | `5432` |
+| `REDIS_HOST_PORT` | `6379` |
+| `API_HOST_PORT` | `3000` |
+
+```sh
+export POSTGRES_HOST_PORT=15432 REDIS_HOST_PORT=16379 API_HOST_PORT=13000
+docker compose up -d --build
+curl "http://127.0.0.1:${API_HOST_PORT}/api/v1/health"
+
+# Host tests must use the published database ports:
+DATABASE_URL="jdbc:postgresql://127.0.0.1:${POSTGRES_HOST_PORT}/bookshelf" \
+REDIS_URL="redis://:redis-local-only@127.0.0.1:${REDIS_HOST_PORT}/0" \
+lein test :all
+```
+
+If `TEST_DATABASE_URL` is set, update it too: it takes precedence for integration
+tests. A Compose `.env` file does not export these variables into your host shell;
+export them as above or put the actual port numbers in the host URLs. Container
+tests need no URL changes. Swagger UI uses the published API port, for example
+`http://localhost:13000/swagger-ui/`. The smoke script discovers that port from
+`docker compose port api 3000`, including overrides from `.env`.
 
 ## Tests
 
@@ -264,6 +289,8 @@ docker compose up -d postgres redis
 lein test :all                  # handler + real database/Redis tests
 # Or use only Docker, including the exact pinned Leiningen version:
 docker compose --profile test run --build --rm test
+# Repeat the full suite on Java 27 (the runtime image remains Java 21):
+TEST_JDK_IMAGE=eclipse-temurin:27-jdk docker compose --profile test run --build --rm test
 # Full HTTP checks, including actual Redis/PostgreSQL stop/start (Python 3):
 python3 scripts/smoke.py
 ```
@@ -271,6 +298,13 @@ python3 scripts/smoke.py
 The smoke script briefly stops the local Compose Redis and PostgreSQL services,
 checks readiness/liveness, recovery, and persistence, then restarts them and
 removes its own test books/authors. Run it when interrupting local requests is OK.
+
+The middleware regression test checks that executor submission preserves the
+complete handler response and dynamic bindings. Run it without the integration
+tests using `lein test :only bookshelf-api.middleware-test/timeout-preserves-handler-response-and-bindings`.
+The Java 21 and Java 27 Docker commands above exercise it on both JDKs. To check
+compiler reflection warnings, run `lein check`; the timeout's `submit` call must
+resolve to the `Callable` overload without reflection.
 
 Each integration test creates a random PostgreSQL schema, uses `currentSchema`
 to isolate it, and drops only that schema in `finally`. Redis test channels also
