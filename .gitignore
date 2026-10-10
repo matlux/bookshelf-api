@@ -1,0 +1,11 @@
+/target/
+/.lein-*
+/.nrepl-port
+/.cpcache/
+/.clj-kondo/.cache/
+/.clj-kondo/imports/
+/.lsp/
+/.idea/
+/.DS_Store
+/.env
+*.log
