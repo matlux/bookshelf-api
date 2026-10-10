@@ -8,5 +8,7 @@
      (.setUsername database-user)
      (.setPassword database-password)
      (.setMaximumPoolSize database-pool-size)
-     (.setConnectionTimeout 5000)
+     ;; Leave time for both dependency probes within the default HTTP deadline.
+     (.setConnectionTimeout 2000)
+     (.setValidationTimeout 1000)
      (.setPoolName "bookshelf"))))

@@ -6,9 +6,11 @@
 
 (defn routes [db notify!]
   [["/books"
-    {:get {:summary "List books" :tags #{"books"}
+    {:get {:summary "List books (default limit 20; maximum 100)" :tags #{"books"}
+           :parameters {:query s/BookQuery}
            :responses {200 {:body [:vector s/Book]}}
-           :handler (fn [_] {:status 200 :body (q/list-books db)})}
+           :handler (fn [request]
+                      {:status 200 :body (q/list-books db (get-in request [:parameters :query]))})}
      :post {:summary "Create a book" :tags #{"books"}
             :parameters {:body s/BookInput}
             :responses {201 {:body s/Book} 422 {:body s/ErrorBody}}

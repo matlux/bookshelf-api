@@ -12,6 +12,7 @@
                  [metosin/reitit-swagger-ui "0.11.0"]
                  [metosin/reitit-middleware "0.11.0"]
                  [metosin/muuntaja "0.6.12"]
+                 [metosin/jsonista "1.0.1"]
                  [metosin/malli "0.20.3"]
                  [com.github.seancorfield/next.jdbc "1.3.1118"]
                  [com.github.seancorfield/honeysql "2.7.1479"]
