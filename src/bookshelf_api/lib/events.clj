@@ -10,6 +10,10 @@
                     (.timeoutMillis 2000)
                     (.autoNegotiateProtocol false)))))
 
+(defn healthy? [{:keys [redis-url]}]
+  (with-open [client (connect redis-url)]
+    (= "PONG" (.ping client))))
+
 (defn publisher [{:keys [redis-enabled redis-url redis-channel]}]
   (if-not redis-enabled
     (constantly nil)
