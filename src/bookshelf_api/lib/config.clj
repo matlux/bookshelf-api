@@ -7,7 +7,7 @@
    [:app-role [:enum "api" "worker" "migrate"]]
    [:http-host :string]
    [:http-port [:int {:min 1 :max 65535}]]
-   [:request-timeout-ms [:int {:min 1 :max 120000}]]
+   [:request-timeout-ms [:int {:min 2 :max 120000}]]
    [:request-threads [:int {:min 1 :max 64}]]
    [:cors-allowed-origins [:vector [:re #"^https?://[^/]+$"]]]
    [:database-url [:re #"^jdbc:postgresql://.+"]]

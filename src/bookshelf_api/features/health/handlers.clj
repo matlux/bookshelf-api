@@ -5,7 +5,8 @@
 
 (defn routes [db config]
   [["/health/live"
-    {:get {:summary "Process liveness (no dependency checks)" :tags #{"health"}
+    {:get {::liveness? true
+           :summary "Process liveness (no dependency checks)" :tags #{"health"}
            :responses {200 {:body s/Liveness}}
            :handler (fn [_] {:status 200 :body {:status "ok"}})}}]
    ["/health"

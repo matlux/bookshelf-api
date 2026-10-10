@@ -7,7 +7,7 @@
  :database-url "jdbc:postgresql://127.0.0.1:5432/bookshelf"
  :database-user "bookshelf"
  :database-password "bookshelf-local-only"
- :database-pool-size 5
+ :database-pool-size 8
  :redis-enabled false
  :redis-url "redis://:redis-local-only@127.0.0.1:6379/0"
  :redis-channel "bookshelf:changed"}

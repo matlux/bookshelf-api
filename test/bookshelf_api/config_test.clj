@@ -12,6 +12,7 @@
     (is (= defaults (config/load-config))))
   (doseq [overrides [{:http-port 0} {:http-port "not-a-number"} {:app-role "typo"}
                      {:database-url "secret-value"} {:request-timeout-ms -1}
+                     {:request-timeout-ms 1}
                      {:request-threads 0} {:cors-allowed-origins ["*"]}
                      {:app-role "worker" :redis-enabled false}]]
     (with-redefs [cprop/load-config (constantly (merge defaults overrides))]
@@ -21,3 +22,8 @@
         (catch clojure.lang.ExceptionInfo error
           (is (empty? (ex-data error)))
           (is (not (.contains (.getMessage error) "secret-value"))))))))
+
+(deftest default-capacity-and-minimum-deadline
+  (is (= (:request-threads defaults) (:database-pool-size defaults)))
+  (with-redefs [cprop/load-config (constantly (assoc defaults :request-timeout-ms 2))]
+    (is (= 2 (:request-timeout-ms (config/load-config))))))

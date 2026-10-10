@@ -230,3 +230,30 @@
             (finally (deliver release true)))
           (is (= 200 (:status (deref first-request 2000 nil))))))
       (finally (deliver release true) (.shutdownNow executor)))))
+
+(deftest liveness-bypasses-saturated-executor
+  (let [executor (middleware/executor 1)
+        handler (http/app ::db (constantly nil)
+                          (assoc settings :request-timeout-ms 10000
+                                 :cors-allowed-origins ["http://localhost:5173"])
+                          executor)
+        started (promise) release (promise)]
+    (try
+      (with-redefs [q/list-books (fn [& _] (deliver started true) @release [])
+                    q/healthy? (fn [_] (throw (AssertionError. "Liveness must not query DB")))
+                    events/healthy? (fn [_] (throw (AssertionError. "Liveness must not query Redis")))]
+        (let [busy (future (handler (mock/request :get "/api/v1/books")))]
+          (try
+            (is (= true (deref started 2000 false)))
+            (is (= 503 (:status (handler (mock/request :get "/api/v1/books")))))
+            (is (= 503 (:status (handler (mock/request :get "/api/v1/health")))))
+            (let [response (handler (-> (mock/request :get "/api/v1/health/live")
+                                        (mock/header "X-Request-ID" "liveness-under-load")
+                                        (mock/header "Origin" "http://localhost:5173")))]
+              (is (= 200 (:status response)))
+              (is (= {:status "ok"} (body response)))
+              (is (= "liveness-under-load" (get-in response [:headers "X-Request-ID"])))
+              (is (= "http://localhost:5173" (get-in response [:headers "Access-Control-Allow-Origin"]))))
+            (finally (deliver release true)))
+          (is (= 200 (:status (deref busy 2000 nil))))))
+      (finally (deliver release true) (.shutdownNow executor)))))

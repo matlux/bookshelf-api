@@ -42,7 +42,7 @@ docker compose up --build # rebuild after source changes
 | Method | Path | Behavior |
 | --- | --- | --- |
 | GET | `/api/v1/health` | Readiness: PostgreSQL and enabled Redis; 503 on failure |
-| GET | `/api/v1/health/live` | Process liveness; no dependency checks |
+| GET | `/api/v1/health/live` | Process liveness; no dependency checks or request-executor admission |
 | GET, POST | `/api/v1/authors` | List or create authors (201 + Location) |
 | GET, PUT, DELETE | `/api/v1/authors/:id` | Read, rename, or delete an author; 409 if books reference it |
 | GET | `/api/v1/books` | Paginated books with optional filters and sorting |
@@ -110,13 +110,37 @@ Allowed preflights receive 204; denied origins, methods, or headers receive 403.
 Responses to allowed origins expose `X-Request-ID` and `Location`; credentials
 are not enabled. CORS governs browser access and is not authentication.
 
-`REQUEST_TIMEOUT_MS` defaults to 5000. Work runs on a bounded pool of
+`REQUEST_TIMEOUT_MS` defaults to 5000. Matched API routes run on a bounded pool of
 `REQUEST_THREADS` (default 8), with no waiting queue. A timed-out request returns
 504 and its task is interrupted; a saturated pool returns 503. These responses
-also include request IDs, access logs, and CORS headers. Interruption is best
-effort: blocking code/JDBC may continue, and a timed-out write may still commit.
-Check the resource before retrying a write. This timeout bounds synchronous
-handler work; it does not time the subsequent network transmission of a response.
+also include request IDs, access logs, and CORS headers. The GET liveness route
+opts out through trusted Reitit route data: it runs on the Jetty thread, retains
+JSON encoding and the outer middleware, and stays 200 when the request executor
+is full. Readiness still uses the executor and may return 503 under load. Static
+Swagger UI assets and unmatched-route responses also run outside that executor.
+
+Every new API database connection gets PostgreSQL `statement_timeout` set to
+90% of `REQUEST_TIMEOUT_MS`, rounded down (4500 ms by default). Hikari's connection
+initialization SQL also applies it to replacement connections. PostgreSQL cancels
+overlong statements server-side, and SQLSTATE `57014` maps to a JSON 504 without
+exposing SQL details. Worker and migration connections retain the database server's
+timeout setting because they have no HTTP deadline. See the public
+[PostgreSQL timeout documentation](https://www.postgresql.org/docs/18/runtime-config-client.html#GUC-STATEMENT-TIMEOUT)
+and [HikariCP connection initialization options](https://github.com/brettwooldridge/HikariCP#gear-configuration-knobs-baby).
+
+The database pool and request executor both default to 8. Each current request
+uses at most one database connection at a time; this avoids a smaller pool forcing
+otherwise admitted requests to wait for a connection. Each process has its own
+pool, so API and worker connection budgets add up. Tune `DATABASE_POOL_SIZE` and
+`REQUEST_THREADS` together: a smaller pool is allowed but introduces contention
+and a possible pool acquisition failure after 2 seconds. This is a simple local
+default, not a database throughput tuning recommendation.
+
+The statement limit applies per SQL statement, not to the whole request. Connection
+acquisition, multiple statements, or other blocking work can still outlive the HTTP
+deadline; thread interruption remains best effort. A timed-out write may already
+have committed, so check the resource before retrying. The HTTP timeout bounds
+synchronous handler work, not subsequent network transmission of the response.
 
 ## Follow one request through the code
 
@@ -217,13 +241,13 @@ Single underscores in environment names map to hyphens in Clojure keys.
 | `APP_ROLE` | `api` (`api`, `worker`, or `migrate`) |
 | `HTTP_HOST` | `127.0.0.1` |
 | `HTTP_PORT` | `3000` |
-| `REQUEST_TIMEOUT_MS` | `5000` (1–120000) |
+| `REQUEST_TIMEOUT_MS` | `5000` (2–120000; allows a positive, shorter SQL timeout) |
 | `REQUEST_THREADS` | `8` (1–64) |
 | `CORS_ALLOWED_ORIGINS` | `[]` (EDN vector of exact HTTP(S) origins) |
 | `DATABASE_URL` | `jdbc:postgresql://127.0.0.1:5432/bookshelf` |
 | `DATABASE_USER` | `bookshelf` |
 | `DATABASE_PASSWORD` | `bookshelf-local-only` |
-| `DATABASE_POOL_SIZE` | `5` |
+| `DATABASE_POOL_SIZE` | `8` (matches the default request executor) |
 | `REDIS_ENABLED` | `false` |
 | `REDIS_URL` | `redis://:redis-local-only@127.0.0.1:6379/0` |
 | `REDIS_CHANNEL` | `bookshelf:changed` |
@@ -281,7 +305,10 @@ refuses reconnects, then restores connectivity; the subscriber must repair a
 write made during the outage without receiving another event. This avoids
 interrupting anyone else's Redis connections. Unit tests cover config validation,
 migration-role selection, readiness/liveness, SQL errors, CORS, request IDs,
-timeouts, and pool saturation.
+timeouts, and liveness during pool saturation. Real PostgreSQL tests verify
+server-side query cancellation, HTTP 504 mapping, capacity recovery, timeout
+initialization on multiple/replacement connections, and separate background-role
+settings.
 
 ```sh
 lein test                       # unit/handler tests; no services required
@@ -306,8 +333,9 @@ The Java 21 and Java 27 Docker commands above exercise it on both JDKs. To check
 compiler reflection warnings, run `lein check`; the timeout's `submit` call must
 resolve to the `Callable` overload without reflection.
 
-Each integration test creates a random PostgreSQL schema, uses `currentSchema`
-to isolate it, and drops only that schema in `finally`. Redis test channels also
+CRUD and migration integration tests create a random PostgreSQL schema, use
+`currentSchema` to isolate it, and drop only that schema in `finally`. Pool tests
+use read-only queries and do not create application data. Redis test channels also
 have random names. `TEST_DATABASE_URL` optionally overrides the integration DB
 URL; credentials come from `DATABASE_USER` and `DATABASE_PASSWORD`. Tests require
 permission to create schemas. Missing services make integration tests fail;
